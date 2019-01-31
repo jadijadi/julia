@@ -127,8 +127,10 @@ end
 
 # test for unique Enum values
 @test_throws ArgumentError("values for Enum Test14 are not unique") @macrocall(@enum(Test14, _zero_Test14, _one_Test14, _two_Test14=0))
+# and names
+@test_throws ArgumentError("names for Enum Test15 are not unique") @macrocall(@enum(Test15, _zero_Test15, _one_Test15, _zero_Test15))
 
-@test repr(apple) == "apple::Fruit = 0"
+@test repr(apple) == "$(@__MODULE__).apple"
 @test string(apple) == "apple"
 
 @test repr("text/plain", Fruit) == "Enum $(string(Fruit)):\napple = 0\norange = 1\nkiwi = 2"

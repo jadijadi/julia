@@ -696,7 +696,7 @@ enumerated types (see `@enum`).
 julia> @enum Color red blue green
 
 julia> instances(Color)
-(red::Color = 0, blue::Color = 1, green::Color = 2)
+(red, blue, green)
 ```
 """
 function instances end

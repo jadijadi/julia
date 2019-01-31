@@ -6,6 +6,7 @@ import Core.Intrinsics.bitcast
 export Enum, @enum
 
 function basetype end
+function namemap end
 
 """
     Enum{T<:Integer}
@@ -18,6 +19,42 @@ abstract type Enum{T<:Integer} end
 Base.cconvert(::Type{T}, x::Enum{T2}) where {T<:Integer,T2<:Integer} = T(x)
 Base.write(io::IO, x::Enum{T}) where {T<:Integer} = write(io, T(x))
 Base.read(io::IO, ::Type{T}) where {T<:Enum} = T(read(io, Enums.basetype(T)))
+
+Base.isless(x::T, y::T) where {T<:Enum} = isless(basetype(T)(x), basetype(T)(y))
+
+Base.Symbol(x::Enum) = namemap(typeof(x))[Integer(x)]::Symbol
+
+Base.print(io::IO, x::Enum) = print(io, Symbol(x))
+
+function Base.show(io::IO, x::Enum)
+    sym = Symbol(x)
+    if !get(io, :compact, false)
+        from = get(io, :module, Main)
+        def = typeof(x).name.module
+        if from === nothing || !Base.isvisible(sym, def, from)
+            show(io, def)
+            print(io, ".")
+        end
+    end
+    print(io, sym)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", x::Enum)
+    print(io, x, "::")
+    show(IOContext(io, :compact => true), typeof(x))
+    print(io, " = ")
+    show(io, Integer(x))
+end
+
+function Base.show(io::IO, ::MIME"text/plain", t::Type{<:Enum})
+    print(io, "Enum ")
+    Base.show_datatype(io, t)
+    print(io, ":")
+    for x in instances(t)
+        print(io, "\n", Symbol(x), " = ")
+        show(io, Integer(x))
+    end
+end
 
 # generate code to test whether expr is in the given set of values
 function membershiptest(expr, values)
@@ -74,7 +111,7 @@ To list all the instances of an enum use `instances`, e.g.
 
 ```jldoctest fruitenum
 julia> instances(Fruit)
-(apple::Fruit = 1, orange::Fruit = 2, kiwi::Fruit = 3)
+(apple, orange, kiwi)
 ```
 """
 macro enum(T, syms...)
@@ -92,7 +129,9 @@ macro enum(T, syms...)
     elseif !isa(T, Symbol)
         throw(ArgumentError("invalid type expression for enum $T"))
     end
-    vals = Vector{Tuple{Symbol,Integer}}()
+    values = basetype[]
+    seen = Set{Symbol}()
+    namemap = Dict{basetype,Symbol}()
     lo = hi = 0
     i = zero(basetype)
     hasexpr = false
@@ -103,7 +142,7 @@ macro enum(T, syms...)
     for s in syms
         s isa LineNumberNode && continue
         if isa(s, Symbol)
-            if i == typemin(basetype) && !isempty(vals)
+            if i == typemin(basetype) && !isempty(values)
                 throw(ArgumentError("overflow in value \"$s\" of Enum $typename"))
             end
         elseif isa(s, Expr) &&
@@ -122,18 +161,22 @@ macro enum(T, syms...)
         if !Base.isidentifier(s)
             throw(ArgumentError("invalid name for Enum $typename; \"$s\" is not a valid identifier."))
         end
-        push!(vals, (s,i))
-        if length(vals) == 1
+        if hasexpr && haskey(namemap, i)
+            throw(ArgumentError("values for Enum $typename are not unique"))
+        end
+        namemap[i] = s
+        push!(values, i)
+        if s in seen
+            throw(ArgumentError("names for Enum $typename are not unique"))
+        end
+        push!(seen, s)
+        if length(values) == 1
             lo = hi = i
         else
             lo = min(lo, i)
             hi = max(hi, i)
         end
         i += oneunit(i)
-    end
-    values = basetype[i[2] for i in vals]
-    if hasexpr && values != unique(values)
-        throw(ArgumentError("values for Enum $typename are not unique"))
     end
     blk = quote
         # enum definition
@@ -143,41 +186,15 @@ macro enum(T, syms...)
             return bitcast($(esc(typename)), convert($(basetype), x))
         end
         Enums.basetype(::Type{$(esc(typename))}) = $(esc(basetype))
+        Enums.namemap(::Type{$(esc(typename))}) = $(esc(namemap))
         Base.typemin(x::Type{$(esc(typename))}) = $(esc(typename))($lo)
         Base.typemax(x::Type{$(esc(typename))}) = $(esc(typename))($hi)
-        Base.isless(x::$(esc(typename)), y::$(esc(typename))) = isless($basetype(x), $basetype(y))
-        let insts = ntuple(i->$(esc(typename))($values[i]), $(length(vals)))
+        let insts = ntuple(i->$(esc(typename))($values[i]), $(length(values)))
             Base.instances(::Type{$(esc(typename))}) = insts
-        end
-        function Base.print(io::IO, x::$(esc(typename)))
-            for (sym, i) in $vals
-                if i == $(basetype)(x)
-                    print(io, sym); break
-                end
-            end
-        end
-        function Base.show(io::IO, x::$(esc(typename)))
-            if get(io, :compact, false)
-                print(io, x)
-            else
-                print(io, x, "::")
-                show(IOContext(io, :compact => true), typeof(x))
-                print(io, " = ")
-                show(io, $basetype(x))
-            end
-        end
-        function Base.show(io::IO, ::MIME"text/plain", t::Type{$(esc(typename))})
-            print(io, "Enum ")
-            Base.show_datatype(io, t)
-            print(io, ":")
-            for (sym, i) in $vals
-                print(io, "\n", sym, " = ")
-                show(io, i)
-            end
         end
     end
     if isa(typename, Symbol)
-        for (sym,i) in vals
+        for (i, sym) in namemap
             push!(blk.args, :(const $(esc(sym)) = $(esc(typename))($i)))
         end
     end

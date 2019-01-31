@@ -384,6 +384,7 @@ function show(io::IO, x::Core.IntrinsicFunction)
 end
 
 show(io::IO, ::Core.TypeofBottom) = print(io, "Union{}")
+show(io::IO, ::MIME"text/plain", ::Core.TypeofBottom) = print(io, "Union{}")
 
 function show(io::IO, x::Union)
     print(io, "Union")
