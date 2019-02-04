@@ -142,6 +142,14 @@ RangeStepStyle(::Type{<:AbstractRange{<:Integer}}) = RangeStepRegular()
 
 convert(::Type{T}, r::AbstractRange) where {T<:AbstractRange} = r isa T ? r : T(r)
 
+AxesStartStyle(::Type{<:AbstractRange}) = AxesStartAny()
+AxesStartStyle(r::AbstractRange) = AxesStartStyle(typeof(r))
+
+require_one_based_indexing(r::AbstractRange) = _require_one_based_indexing(AxesStartStyle(r), r)
+_require_one_based_indexing(::AxesStartStyle, r) =
+    !has_offset_axes(r) || throw(ArgumentError("offset arrays are not supported but got an array with index other than 1"))
+_require_one_based_indexing(::AxesStart1, r) = true
+
 ## ordinal ranges
 
 """
@@ -250,6 +258,8 @@ steprange_last_empty(start, step, stop) = start - step
 
 StepRange(start::T, step::S, stop::T) where {T,S} = StepRange{T,S}(start, step, stop)
 
+AxesStartStyle(::Type{<:StepRange}) = AxesStart1()
+
 """
     UnitRange{T<:Real}
 
@@ -297,6 +307,8 @@ if isdefined(Main, :Base)
     end
 end
 
+AxesStartStyle(::Type{<:UnitRange}) = AxesStart1()
+
 """
     Base.OneTo(n)
 
@@ -317,6 +329,8 @@ struct OneTo{T<:Integer} <: AbstractUnitRange{T}
 end
 OneTo(stop::T) where {T<:Integer} = OneTo{T}(stop)
 OneTo(r::AbstractRange{T}) where {T<:Integer} = OneTo{T}(r)
+
+AxesStartStyle(::Type{<:OneTo}) = AxesStart1()
 
 ## Step ranges parameterized by length
 
@@ -349,6 +363,8 @@ StepRangeLen(ref::R, step::S, len::Integer, offset::Integer = 1) where {R,S} =
     StepRangeLen{typeof(ref+0*step),R,S}(ref, step, len, offset)
 StepRangeLen{T}(ref::R, step::S, len::Integer, offset::Integer = 1) where {T,R,S} =
     StepRangeLen{T,R,S}(ref, step, len, offset)
+
+AxesStartStyle(::Type{<:StepRangeLen}) = AxesStart1()
 
 ## range with computed step
 
@@ -386,6 +402,8 @@ function LinRange(start, stop, len::Integer)
     T = typeof((stop-start)/len)
     LinRange{T}(start, stop, len)
 end
+
+AxesStartStyle(::Type{<:LinRange}) = AxesStart1()
 
 function _range(start::T, ::Nothing, stop::S, len::Integer) where {T,S}
     a, b = promote(start, stop)
@@ -713,10 +731,14 @@ show(io::IO, r::AbstractRange) = print(io, repr(first(r)), ':', repr(step(r)), '
 show(io::IO, r::UnitRange) = print(io, repr(first(r)), ':', repr(last(r)))
 show(io::IO, r::OneTo) = print(io, "Base.OneTo(", r.stop, ")")
 
+range_axes_first_same(r, s) = _range_axes_first_same(AxesStartStyle(r), AxesStartStyle(s), r, s)
+_range_axes_first_same(::AxesStart1, ::AxesStart1, r, s) = true
+_range_axes_first_same(::AxesStartStyle, ::AxesStartStyle, r, s) = first(axes1(r)) == first(axes1(s))
+
 ==(r::T, s::T) where {T<:AbstractRange} =
-    (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s))
+    (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s)) & range_axes_first_same(r, s)
 ==(r::OrdinalRange, s::OrdinalRange) =
-    (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s))
+    (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s)) & range_axes_first_same(r, s)
 ==(r::T, s::T) where {T<:Union{StepRangeLen,LinRange}} =
     (first(r) == first(s)) & (length(r) == length(s)) & (last(r) == last(s))
 ==(r::Union{StepRange{T},StepRangeLen{T,T}}, s::Union{StepRange{T},StepRangeLen{T,T}}) where {T} =
@@ -727,6 +749,7 @@ function ==(r::AbstractRange, s::AbstractRange)
     if lr != length(s)
         return false
     end
+    range_axes_first_same(r, s) || return false
     yr, ys = iterate(r), iterate(s)
     while yr !== nothing
         yr[1] == ys[1] || return false
@@ -849,7 +872,7 @@ end
 
 ## linear operations on ranges ##
 
--(r::OrdinalRange) = range(-first(r), step=-step(r), length=length(r))
+-(r::OrdinalRange) = (require_one_based_indexing(r); range(-first(r), step=-step(r), length=length(r)))
 -(r::StepRangeLen{T,R,S}) where {T,R,S} =
     StepRangeLen{T,R,S}(-r.ref, -r.step, length(r), r.offset)
 -(r::LinRange) = LinRange(-r.start, -r.stop, length(r))
@@ -873,8 +896,10 @@ OneTo{T}(r::OneTo) where {T<:Integer} = OneTo{T}(r.stop)
 
 promote_rule(a::Type{UnitRange{T1}}, ::Type{UR}) where {T1,UR<:AbstractUnitRange} =
     promote_rule(a, UnitRange{eltype(UR)})
-UnitRange{T}(r::AbstractUnitRange) where {T<:Real} = UnitRange{T}(first(r), last(r))
-UnitRange(r::AbstractUnitRange) = UnitRange(first(r), last(r))
+UnitRange{T}(r::AbstractUnitRange) where {T<:Real} =
+    (require_one_based_indexing(r); UnitRange{T}(first(r), last(r)))
+UnitRange(r::AbstractUnitRange) =
+    (require_one_based_indexing(r); UnitRange(first(r), last(r)))
 
 AbstractUnitRange{T}(r::AbstractUnitRange{T}) where {T} = r
 AbstractUnitRange{T}(r::UnitRange) where {T} = UnitRange{T}(r)
@@ -889,10 +914,14 @@ StepRange{T1,T2}(r::StepRange{T1,T2}) where {T1,T2} = r
 
 promote_rule(a::Type{StepRange{T1a,T1b}}, ::Type{UR}) where {T1a,T1b,UR<:AbstractUnitRange} =
     promote_rule(a, StepRange{eltype(UR), eltype(UR)})
-StepRange{T1,T2}(r::AbstractRange) where {T1,T2} =
+function StepRange{T1,T2}(r::AbstractRange) where {T1,T2}
+    require_one_based_indexing(r)
     StepRange{T1,T2}(convert(T1, first(r)), convert(T2, step(r)), convert(T1, last(r)))
-StepRange(r::AbstractUnitRange{T}) where {T} =
+end
+function StepRange(r::AbstractUnitRange{T}) where {T}
+    require_one_based_indexing(r)
     StepRange{T,T}(first(r), step(r), last(r))
+end
 (::Type{StepRange{T1,T2} where T1})(r::AbstractRange) where {T2} = StepRange{eltype(r),T2}(r)
 
 promote_rule(::Type{StepRangeLen{T1,R1,S1}},::Type{StepRangeLen{T2,R2,S2}}) where {T1,T2,R1,R2,S1,S2} =
@@ -908,15 +937,16 @@ StepRangeLen{T}(r::StepRangeLen) where {T} =
 promote_rule(a::Type{StepRangeLen{T,R,S}}, ::Type{OR}) where {T,R,S,OR<:AbstractRange} =
     promote_rule(a, StepRangeLen{eltype(OR), eltype(OR), eltype(OR)})
 StepRangeLen{T,R,S}(r::AbstractRange) where {T,R,S} =
-    StepRangeLen{T,R,S}(R(first(r)), S(step(r)), length(r))
+    (require_one_based_indexing(r); StepRangeLen{T,R,S}(R(first(r)), S(step(r)), length(r)))
 StepRangeLen{T}(r::AbstractRange) where {T} =
-    StepRangeLen(T(first(r)), T(step(r)), length(r))
+    (require_one_based_indexing(r); StepRangeLen(T(first(r)), T(step(r)), length(r)))
 StepRangeLen(r::AbstractRange) = StepRangeLen{eltype(r)}(r)
 
 promote_rule(a::Type{LinRange{T1}}, b::Type{LinRange{T2}}) where {T1,T2} =
     el_same(promote_type(T1,T2), a, b)
 LinRange{T}(r::LinRange{T}) where {T} = r
-LinRange{T}(r::AbstractRange) where {T} = LinRange{T}(first(r), last(r), length(r))
+LinRange{T}(r::AbstractRange) where {T} =
+    (require_one_based_indexing(r); LinRange{T}(first(r), last(r), length(r)))
 LinRange(r::AbstractRange{T}) where {T} = LinRange{T}(r)
 
 promote_rule(a::Type{LinRange{T}}, ::Type{OR}) where {T,OR<:OrdinalRange} =
@@ -944,7 +974,10 @@ end
 Array{T,1}(r::AbstractRange{T}) where {T} = vcat(r)
 collect(r::AbstractRange) = vcat(r)
 
-reverse(r::OrdinalRange) = (:)(last(r), -step(r), first(r))
+function reverse(r::OrdinalRange)
+    require_one_based_indexing(r)
+    (:)(last(r), -step(r), first(r))
+end
 function reverse(r::StepRangeLen)
     # If `r` is empty, `length(r) - r.offset + 1 will be nonpositive hence
     # invalid. As `reverse(r)` is also empty, any offset would work so we keep
@@ -964,8 +997,11 @@ sort!(r::AbstractUnitRange) = r
 
 sort(r::AbstractRange) = issorted(r) ? r : reverse(r)
 
-sortperm(r::AbstractUnitRange) = 1:length(r)
-sortperm(r::AbstractRange) = issorted(r) ? (1:1:length(r)) : (length(r):-1:1)
+sortperm(r::AbstractUnitRange) = (require_one_based_indexing(r); 1:length(r))
+function sortperm(r::AbstractRange)
+    require_one_based_indexing(r)
+    issorted(r) ? (1:1:length(r)) : (length(r):-1:1)
+end
 
 function sum(r::AbstractRange{<:Real})
     l = length(r)
@@ -1004,6 +1040,7 @@ function _define_range_op(@nospecialize f)
             r1l = length(r1)
             (r1l == length(r2) ||
              throw(DimensionMismatch("argument dimensions must match")))
+             require_one_based_indexing(r1, r2)
             range($f(first(r1), first(r2)), step=$f(step(r1), step(r2)), length=r1l)
         end
 

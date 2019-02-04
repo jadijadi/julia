@@ -1458,3 +1458,44 @@ end
                                             Base.TwicePrecision(-1.0, -0.0), 0)
     @test reverse(reverse(1.0:0.0)) === 1.0:0.0
 end
+
+@testset "Fallbacks for IdentityUnitRange" begin
+    r = Base.IdentityUnitRange(-2:2)
+    argerr = ArgumentError("offset arrays are not supported but got an array with index other than 1")
+    @test r != -2:2
+    @test r != -2:1:2
+    @test r == r
+    @test r != Base.IdentityUnitRange(-1:2)
+    @test +r === r
+    @test_throws argerr UnitRange{Int}(r)
+    @test_throws argerr UnitRange(r)
+    @test_throws argerr StepRange{Int,Int}(r)
+    @test_throws argerr StepRange(r)
+    @test_throws argerr StepRangeLen(r)
+    @test_throws argerr StepRangeLen{Int,Int,Int}(r)
+    @test_throws argerr LinRange(r)
+    @test_throws argerr -r
+    @test_throws argerr .-r
+    @test_throws argerr r .+ 1
+    @test_throws argerr 1 .+ r
+    @test_throws argerr r .+ im
+    @test_throws argerr im .+ r
+    @test_throws argerr r .- 1
+    @test_throws argerr 1 .- r
+    @test_throws argerr 2 * r
+    @test_throws argerr r * 2
+    @test_throws argerr 2 .* r
+    @test_throws argerr r .* 2
+    @test_throws argerr r / 2
+    @test_throws argerr r ./ 2
+    @test_throws argerr 2 \ r
+    @test_throws argerr 2 .\ r
+    @test_throws argerr r + r
+    @test_throws argerr r - r
+    @test_throws argerr r .+ r
+    @test_throws argerr r .- r
+    @test_throws MethodError r .* r
+    @test_throws DimensionMismatch r .* (-2:2)
+    @test_throws argerr reverse(r)
+    @test_throws argerr sortperm(r)
+end
